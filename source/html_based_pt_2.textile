@@ -1,0 +1,111 @@
+h2. Getting Started With HTML-Based Apps Part 2
+
+After reading this guide you will be able to:
+
+* Use +SC.Store+ to manage data
+
+endprologue.
+
+h3. Prepare the application
+
+In the "first part of this guide":html_based.html you learned how to write HTML based application. You should now know how to make the bind the UI and underlying models and controllers, but the data that you add is not persistent.
+
+The best way to change that is to use data store to manage records. SproutCore uses +SC.Store+ to give you the API for handling any record changes. Additionally +SC.Store+ uses +SC.DataSource+ beyond the scenes, to actually persist given data. It may sound complicated at first, but in practice it just means that you should use add all your records to the data store and it will use data source to talk to actual source (you could have for example TwitterDataSource that knows how use Twitter API or RestDataSource to talk to your REST based API).
+
+To not waste time building the Todos application from scratch, let's just use an "app from first part":https://github.com/sproutcore/Todos-Example.
+
+In previous part we didn't need anything more from sproutcore than +core_foundation+. Now we need to also add datastore. You can add this dependency in a Buildfile, just change +config+ line to:
+
+<ruby filename="Buildfile">
+config :all, :required => ["sproutcore/core_foundation", "sproutcore/datastore"], :theme => "sproutcore/empty_theme"
+</ruby>
+
+The first think that we need to modify in code is +Todos.Todo+. Currently it's just an extended object. Let's change it to +SC.Record+:
+
+<javascript filename="apps/todos/todos.js">
+Todos.Todo = SC.Record.extend({
+  title: SC.Record.attr(String),
+  isDone: SC.Record.attr(Boolean, { defaultValue: NO })
+});
+</javascript>
+
+Now we extend +SC.Record+ instead of +SC.Object+. We also add attributes definitions: +title+ becomes a +String+ and +isDone+ becomes +Boolean+. Additionally +isDone+ got default value of NO. If you want to read more about records, check the "records guide":records.html.
+
+The easiest way to start using data in development are fixtures. For now let's create a few fixtures below record definition:
+
+<javascript filename="apps/todos/todos.js">
+Todos.Todo.FIXTURES = [
+
+    { "guid": "todo-1",
+      "title": "Build my first SproutCore app",
+      "isDone": false },
+
+    { "guid": "todo-2",
+      "title": "Build a really awesome SproutCore app",
+      "isDone": false },
+
+    { "guid": "todo-3",
+      "title": "Next, the world!",
+      "isDone": false }
+];
+</javascript>
+
+Ok, so we have a model, we have some data, but when you run the application, nothing happens. What's wrong?
+
+As I mentioned at the beginning, a standard way to manage records in SproutCore is to use data store. We also will need to tell the controller that we want to fetch data from that store. Let's start by adding a store to +Todos+ application:
+
+<javascript filename="apps/todos/todos.js">
+Todos = SC.Application.create({
+  store: SC.Store.create().from(SC.Record.fixtures)
+});
+</javascript>
+
+We just added store attribute to application, which is bound to fixtures data source. Later on, when you want to connect your application with a real data source, you can just change the argument
+of +from()+ function to something like +"SC.BulkDataSource"+ or +"MyDataSource"+.
+
+To be sure that everything went fine you can now run the application and try to fetch some records from javascript console:
+
+<javascript filename="apps/todos/todos.js">
+records = Todos.store.find(Todos.Todo)
+records.objectAt(0).get('title')
+// => "Build my first SproutCore app"
+</javascript>
+
+We just used +find()+ function on the store with an argument of record type that we want to fetch. You can also pass queries to that method if you want to filter the results. If you want to learn more about queries, check "records guide":records.html
+
+If that went fine, everything is ready to bind the data with the controller. In order to do that you need to set +content+ attribute for +Todos.todoListControlelr+ to a record array that you will fetch with +SC.Store.find()+ function. You can do it in +SC.ready+ callback, which seats at the and of todos.js file:
+
+<javascript filename="apps/todos/todos.js">
+SC.ready(function() {
+  Todos.mainPane = SC.TemplatePane.append({
+    layerId: 'todos',
+    templateName: 'todos'
+  });
+
+  var todos = Todos.store.find(Todos.Todo)
+  Todos.todoListController.set('content', todos);
+});
+</javascript>
+
+Now refresh the page and you should see that all of the todos from fixtures are displayed in the view. Try also adding new todo... oops, it does not work. Let's see why. Todos are created in +createTodo+ function defined in +todoListController+ with such code:
+
+<javascript filename="apps/todos/todos.js">
+  createTodo: function(title) {
+    var todo = Todos.Todo.create({ title: title });
+    this.pushObject(todo);
+  },
+</javascript>
+
+This won't work with our new approach, cause now the content of controller is +SC.RecordArray+ and you can't edit it directly. How to do it then? When you use a store, all of the records should go there and +SC.RecordArray+ will take care of observing changes and updating underlying array of records. To add newly created +Todo+ to a store, you can use +createRecord+ method:
+
+<javascript filename="apps/todos/todos.js">
+  createTodo: function(title) {
+    Todos.store.createRecord(Todos.Todo, { title: title });
+  },
+</javascript>
+
+Try reloading a page and adding record now. It should automatically place new records on a list. All of the other operations that you perform on records should also work seamlessly, cause we use standard +get()+ and +set()+ functions that work for every type of objects in SproutCore. That wasn't too hard, was it?
+
+h3. Changelog
+
+* May 5, 2011: initial version by "Piotr Sarnacki":credits.html#drogus

@@ -77,6 +77,9 @@ index:
     - title: Getting Started with HTML-Based Apps
       url: html_based
       text: "Learn how to build a robust web app using the power of SproutCore along with the technologies you already know, like HTML and CSS."
+    - title: Getting Started with HTML-Based Apps part 2
+      url: html_based_pt_2
+      text: "Learn how to extend HTML based application to handle data using DataStore"
     - title: Getting Started
       url: getting_started
       text: "Jump start your SproutCore development by playing along as we build a fully functional Todo List application."
