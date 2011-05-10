@@ -80,6 +80,9 @@ index:
     - title: Getting Started with HTML-Based Apps part 2
       url: html_based_pt_2
       text: "Learn how to extend HTML based application to handle data using DataStore"
+    - title: "Connecting sproutcore with rails application"
+      url: rails
+      text: "Learn how to use sproutcore with rails"
     - title: Getting Started
       url: getting_started
       text: "Jump start your SproutCore development by playing along as we build a fully functional Todo List application."

@@ -1,0 +1,703 @@
+h2. Connect SproutCore with Ruby on Rails applications
+
+After reading this guide you will be able to:
+
+* Connect your application with Ruby on Rails backend
+
+endprologue.
+
+h3. Prerequisites
+
+To not waste time on writing our sproutcore I will use TodosExample application that was built in "HTML based apps guide":html_based.html and extended in "HTML based apps part II guide":html_based_pt2.html. The application is a simple todo list.
+
+You will also need rails gem in a version greater than 3.0.7. If you don't have it please run gem install command now:
+
+<shell>
+$ gem install rails
+</shell>
+
+h3. Rails application
+
+Let's start by creating new rails application:
+
+<shell>
+$ rails new todos
+</shell>
+
+This command should create rails application in +todos+ directory. Now we need to add +bulk_api+ gem which will be used to provide integration with sproutcore easier. The main purpose of this gem is to provide API that can be used in conjunction with +SC.BulkDataSource+. It also helps with running sproutcore application - instead of running sproutcore server separately and setup proxy between 2 applications, you can run directly in rails.
+
+To install a gem, you add the following line to your +Gemfile+ and run +bundle install+:
+
+<ruby filename="Gemfile">
+gem "bulk_api"
+</ruby>
+
+After all the gems are installed you will need to run install generator for the +bulk_api+ gem:
+
+<shell>
+$ rails generate bulk:install
+
+ route  bulk_routes "/api/bulk"
+ route  mount Bulk::Sproutcore.new => "/_sproutcore"
+create  app/bulk/application_resource.rb
+create  config/initializers/bulk_api.rb
+</shell>
+
+A few things were added here, let's discuss them briefly. First 2 lines tell us about +config/routes.rb+ file modification. The first line adds routes for bulk api at +/bulk/api+ path. That means that SproutCore application will communicate with rails application using that path. The second lines mounts SproutCore application under +/_sproutcore+ path. What that means is that your sproutcore application will be available when you hit given path. The next thing is +application_resource+ file. It contains definition of +ApplicationResource+ class which will be core class for handling requests in an application, I will explain it in detail later. Last line creates a config file which can be used to configure some of the +bulk_api+'s settings.
+
+h3. Sproutcore application
+
+Before running into SproutCore and Rails communication, it's best to check if SproutCore application runs seamlessly on Rails server. By default SproutCore application should be placed in +app/sproutcore+ directory.
+
+Let's start by cloning "Todos Example app":https://github.com/sproutcore/Todos-Example/tree/part_two 
+
+<shell>
+git clone git://github.com/sproutcore/Todos-Example.git app/sproutcore
+cd app/sproutcore
+
+# Now we can change branch to part_two, to start from second part of tutorial
+git checkout -b part_two origin/part_two
+
+# We also want to clone bulk_data_source into frameworks, it will be needed later:
+git clone git://github.com/drogus/bulk_data_source.git frameworks/bulk_data_source
+cd ../..
+</shell>
+
+Now when application is in proper directory you can run the server with +rails s+ and point your browser to "http://localhost:3000/_sproutcore":http://localhost:3000/_sproutcore. You should see list of SproutCore apps from +app/sproutcore+ directory.
+
+Try running +todos+ application. It should run just fine, but it uses fixtures as a data source, so you will loos all your changes after page refresh. Let's change that!
+
+h3. Rails and SproutCore communication
+
+In order to save our todo items in a database we will need a todo model. You can create it using generator:
+
+<shell>
+$ rails g model Todo title:string done:boolean
+$ rake db:migrate
+</shell>
+
+Now we need to do a few changes in SproutCore application. First thing that we need to do is to change data source. In order to do that, you have to change your app definition to look like that:
+
+<javscript filename="app/sproutcore/apps/todos/todos.js">
+Todos = SC.Application.create({
+  store: SC.Store.create().from("SC.BulkDataSource")
+});
+</javascript>
+
+Next thing to do is to provide a name for +Todos.Todo+ model:
+
+<javascript filename="app/sproutcore/apps/todos/todos.js">
+// Somewhere below the model definition
+Todos.Todo.resourceName = "todo";
+</javascript>
+
+This name will be used as an identifier, when making requests to rails application.
+
+The last thing that you need to change is +Buildfile+ we need to require +SC.BulkDataSource+ in order to use it. Open Buildfile and change config line to the following:
+
+<ruby filename="Buildfile">
+config :all, :required => ["sproutcore/core_foundation", "bulk_data_source"], :theme => "sproutcore/empty_theme"
+</ruby>
+
+Now when you run the rails application again and point your browser to "http://localhost:3000/_sproutcore/todos":http://localhost:3000/_sproutcore/todos. You should be able to play with the data and it should be saved in your database. Try adding some todos and refreshing a page.
+
+Now let's take a closer look on the way it works.
+
+h3. Bulk API
+
+Bulk API is HTTP API that is exposed for SproutCore application. The key point of using it, is to minimize number of requests. Bulk API handles 4 types of requests: +GET+, +POST+, +PUT+ and +DELETE+. Each request can contain more than one resource type and more than one record. You can for example send a few todos for an update with only one request. This happens when you click on "Mark all as Done" link - when using Bulk API, only one request with several records will be sent.
+
+h3. Small CSS tweak
+
+In the next sections of that guide I will add some UI elements that needs additional styling. As I don't want to take time to tweak CSS file, please just replace the entire CSS file with this file: https://github.com/sproutcore/Todos-Example/blob/bulk_api/apps/todos/resources/stylesheets/todos.css
+
+You will also need to wrap your entire view with div with id +todoList+:
+
+<html filename="app/sproutcore/apps/todos/resources/templates/todos.handlebars>
+<div id="todoList">
+  ...
+</div>
+</html>
+
+h3. Authentication
+
+Our +Todos+ application can handle persistence now, but your todos are exposed to the world and anyone can see and modify them. To not allow that, we should add authentication. For this guide I'm going to use devise for authentication, but it will not be hard to use any auth system that you want.
+
+To install devise you need to add it to your Gemfile:
+
+<ruby filename="Gemfile">
+gem "devise"
+</ruby>
+
+and run a few commands to install it:
+
+<shell>
+bundle install
+rails g devise:install
+rails g devise user
+rake db:migrate
+</shell>
+
+To make this guide more concise and application simpler, we will just implement sign in and add a user in rails console:
+
+<shell>
+User.create(:email => "joe.doe@example.com", :password => "secret")
+</shell>
+
+To be able to sign in, we need to talk to Rails application. Luckily, devise supports simple +JSON+, so we can use it to sign in and sign out.
+
+To sign in, we will need to display a form. I will add simple overlay for that:
+
+<javascript filename="app/sproutcore/apps/todos/views/overlay.js">
+Todos.OverlayView = SC.TemplateView.extend({
+  classBinding: 'isVisible',
+  classNames: ['overlay'],
+  isVisible: false,
+
+  show: function() {
+    this.set('isVisible', true);
+  },
+
+  hide: function() {
+    this.set('isVisible', false);
+  },
+
+  template: SC.Handlebars.compile('<div class="window"><div class="inner">{{view contentView}}</div></div>')
+});
+</javascript>
+
+This simple view has its class bound to +isVisible+ attribute. Whenever this attribute changes, the class will be set or unset. I also added two methods to easily manipulate visibility of overlay. I also set the template that contains tags needed for Overlay styling. In order to use this class, you just need to override +contentView+ attribute with you desired view.
+
+Now we can create +Todos.signInOverlayView+ based on that class:
+
+<javascript filename="app/sproutcore/apps/todos/views/sign_in_overlay">
+sc_require("views/overlay");
+
+Todos.signInOverlayView = Todos.OverlayView.create({
+  contentView: SC.TemplateView.create({
+    templateName: 'sign_in'
+  })
+});
+</javascript>
+
+NOTE: While keeping everything in one file may be tempting at the beginning, it can get messy when app gets bigger, so it's better to keep things in separate files. Files in sproutcore are loaded in alphabetical order, but if you need something loaded explicitly before current file, you can use +sc_require+.
+
+I set +sign_in+ template to use with that view, so now we need to add this template:
+
+<html filename="app/sproutcore/apps/todos/resources/templates/sign_in.handlebars">
+// TODO: fix SC.TextField to allow set placeholder and type and use that instead Todos.TextField
+// TODO: figure out the best way to follow web standards, that is: when user
+         presses enter, it should fire SC.Button
+{{view Todos.TextFieldView placeholder="Email" valueBinding="Todos.userSessionController.email"}}
+{{view Todos.TextFieldView placeholder="Password" type="password" valueBinding="Todos.userSessionController.password"}}
+{{#view SC.Button classBinding="isActive" target="Todos.userSessionController" action="signIn"}}
+  Sign in
+{{/view}}
+</html>
+
+Here we have 2 text fields created using +SC.TextField+. They're bound to +Todos.userSessionController+, so when value of any of the todos is changed, corresponding attribute will be set in controller. +SC.Button+ is set to run +signIn()+ function on +Todos.userSessionController+.
+
+Now, let's add a simple controller that can handle that:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/user_session.js">
+Todos.userSessionController = SC.Object.create({
+  isSignedIn: function(callback) {
+    SC.Request.getUrl("/users/signed_in").json()
+      .notify(this, 'didSignedInCheck', callback).send();
+  },
+
+  didSignedInCheck: function(response, callback) {
+    callback(response.get("body")["signed_in"]);
+  },
+
+  signIn: function() {
+    SC.Request.postUrl("/users/sign_in").json()
+      .notify(this, 'didSignIn')
+      .send({user: { email: this.get("email"), password: this.get("password")}});
+  },
+
+  didSignIn: function(response) {
+    if(response.get("status") === 401) {
+      alert('error');
+    } else {
+      Todos.onSignIn();
+    }
+  },
+
+  signOut: function() {
+    SC.Request.getUrl("/users/sign_out").json()
+      .notify(this, 'didSignOut').send();
+  },
+
+  didSignOut: function(response) {
+    window.location.reload();
+  },
+
+  onSignIn: function() {
+    Todos.signInOverlayView.hide();
+  }
+});
+</javascript>
+
+To sign in, we need to send +POST /users/sign_in+ with credentials, which is done in +signIn+ function. When response is fetched, +didSignIn+ is called with response, where we can check response status. If response is ok, we can run +onSignIn+ function. For now, it will just hide the overlay.
+
+In addition to that, I added methods for signing out and checking if user is signed in or not. Although signing out is already implemented with devise, there is no easy way to check if user is signed in. What's more, we haven't change rails application in any way to reflect our authentication changes. Let's change that.
+
+At first, we need to handle authentication in +bulk_api+. In order to do that, we will use +authenticate+ method in +ApplicationResource+:
+
+<ruby filename="app/bulk/application_resource.rb">
+class ApplicationResource < Bulk::Resource
+  delegate :current_user, :user_signed_in?, :to => :controller
+
+  def authenticate(action)
+    user_signed_in?
+  end
+end
+</ruby>
+
+NOTE: We don't have direct access to controller methods in resources, so we need to delegate any methods that we want to use to controller. I just delegated +current_user+ and +user_signed_in?+ for now.
+
+If +authenticate+ method returns false, response status will be set to 401. The +action+ argument is the name of action that's currently authenticated (one of +:get, :create, :update, :delete+), but we don't need to use it right now.
+
+The next thing that needs to be added is check for session status. We will place it in +UserSessionController+:
+
+<shell>
+rails generate controller user_session
+</shell>
+
+<ruby filename="app/controllers/user_session_controller.rb">
+class UserSessionController < ApplicationController
+  def signed_in
+    render :json => {:signed_in => user_signed_in?}
+  end
+end
+</ruby>
+
+<ruby filename="config/routes.rb">
+  get "/users/signed_in" => "user_session#signed_in"
+</ruby>
+
+Now we have all the things in place to handle authentication, but by default Todos application just wants to fetch todos like before. We need to change that, to show sign in overlay if user is not signed in and load todos only if authentication went fine.
+
+In order to do that, we need to change +SC.ready+ function:
+
+<javascript filename="app/sproutcore/apps/todos/todos.js">
+SC.ready(function() {
+  Todos.mainPane = SC.TemplatePane.append({
+    layerId: 'todos',
+    templateName: 'todos'
+  });
+
+  Todos.userSessionController.isSignedIn(function(isSignedIn) {
+    if(isSignedIn) {
+      Todos.userSessionController.onSignIn();
+    } else {
+      Todos.signInOverlayView.show();
+    }
+  });
+});
+</javascript>
+
+Here we use +isSignedIn+ function and run +onSignIn+ if user is authenticated. Otherwise we show sign in overlay. We also need to move fetching todos to +onSignIn+ callback:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/user_session.js">
+Todos.userSessionController = SC.Object.create({
+  // (...)
+
+  onSignIn: function() {
+    Todos.signInOverlayView.hide();
+    var todos = Todos.store.find(Todos.Todo)
+    Todos.todoListController.set('content', todos);
+  }
+});
+</javascript>
+
+When you open application now, you will see sign in overlay and after successful authentication todos should be loaded. The last thing that needs to be added is sign out link. As method for sign out is already added to +UserSessionController+, we just need to add +SC.Button+ to call it:
+
+<html filename="app/sproutcore/apps/todos/resources/templates/todos.handlebars">
+  <h1>Todos</h1>
+
+  {{#view SC.Button classBinding="isActive" class="sign-out" target="Todos.userSessionController" action="signOut"}}
+    Sign out
+  {{/view}}
+</html>
+
+h3. Associations
+
+Nearly every application needs some kind of associations. In Todos app, we could profit from ability to assign todos to a project.
+
+Let's start by extending rails application. We need to add +Project+ model and associate it with todos with +has_many+ relationship. In order to do that we need to add +project_id+ field to todos.
+
+<shell>
+rails g model project name:string
+rails g migration add_project_id_to_todo project_id:integer
+rake db:migreate
+</shell>
+
+Database is ready, go ahead and edit +Project+ and +Todo+ models and add associations:
+
+<ruby filename="app/models/todo.rb">
+class Todo < ActiveRecord::Base
+  belongs_to :project
+end
+</ruby>
+
+<ruby filename="app/models/project.rb">
+class Project < ActiveRecord::Base
+  has_many :todos
+end
+</ruby>
+
+Now we need to do similar thing in javascript:
+
+<javascript filename="app/sproutcore/apps/todos/todos.js">
+Todos.Todo = SC.Record.extend({
+  title: SC.Record.attr(String),
+  isDone: SC.Record.attr(Boolean, { defaultValue: NO, key: 'done' }),
+  project: SC.Record.toOne("Todos.Project", {
+    inverse: "todos", isMaster: NO
+  })
+});
+Todos.Todo.resourceName = 'todo';
+
+Todos.Project = SC.Record.extend({
+  name: SC.Record.attr(String),
+  todos: SC.Record.toMany("Todos.Todo", {
+    inverse: "project", isMaster: YES
+  })
+});
+Todos.Project.resourceName = 'project';
+</javascript>
+
+I used +toMany+ and +toOne+ associations here. In essence they are really similar to +has_many+ and +belongs_to+ associations in Rails. We just need to set inverse names for them.
+
+NOTE: The "isMaster" property tells the attribute helpers which record is the “official record” of this relationship.  To one-to-many and one-to-one relationships, this property is important because it controls which records are marked as dirty when the relationship changes.  In the example above, changing either the User#account property or the Account#users property will mark the Account object as dirty; needing to be committed back to the server. If you do not designate an isMaster property, then both records will be marked dirty when you modify them.
+
+The last thing that we need to add in order to make things work with SproutCore is to return the list of todos along with project. This is because SproutCore does not assume that it must try to fetch it by itself - you have to either fetch all the todos separately (so the store knows that they exist) or add them to request. The latter solution is better in that situation, so we will go that way. If you want to change the way of how one of you resources work, you can create a separate class for it. Let's do it with generator:
+
+<shell>
+rails g bulk:resource project
+</shell>
+
+You can change the way that project is returned by overriding +as_json_options+, go ahead and change +ProjectResource+ to do it:
+
+<ruby filename="app/bulk/project_resource.rb">
+class ProjectResource < ApplicationResource
+  def as_json_options(klass)
+    {:include => { :todos => { :only => :id } } }
+  end
+end
+</ruby>
+
+Anything that this method returns is passed to +as_json+ method called on the record. In that case it will also include +:todos+ array with ids.
+
+For the easy start let's add a few projects in rails console:
+
+<shell>
+$ rails c
+
+>> Project.create(:name => "SproutCore")
+>> Project.create(:name => "Rails")
+</shell>
+
+Now we can display projects. As usual, we will need controller and view to handle that. We will start with controller:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/projects_list.js">
+Todos.projectsListController = SC.ArrayController.create();
+</javascript>
+
+and then we can add a view in a template (somewhere above todos list):
+
+<html filename="app/sproutcore/apps/todos/resources/templates/sign_in.handlebars">
+<div id="projects">
+  <h1>Projects</h1>
+  {{#collection SC.TemplateCollectionView contentBinding="Todos.projectsListController"}}
+    {{content.name}}
+  {{/collection}}
+</div>
+</html>
+
+The last thing that we need to do in order to see projects is to fetch them and set as the controller's content. We can tweak +userSessionController.onSignIn()+ for that:
+
+
+<javascript filename="app/sproutcore/apps/todos/controllers/user_session.js">
+Todos.userSessionController = SC.Object.create({
+  // (...)
+
+  onSignIn: function() {
+    Todos.signInOverlayView.hide();
+
+    var todos = Todos.store.find(Todos.Todo)
+    Todos.todoListController.set('content', todos);
+
+    var projects = Todos.store.find(Todos.Project);
+    Todos.projectsListController.set('content', projects);
+  }
+});
+</javascript>
+
+When you refresh the page, you should see a list of projects on the left. There is a problem with it, though. It's pretty useless if we still display all of the todos and we can't select a project to display.
+
+In order to handle that, I will add ability to select a project. First step to do that is to add that to a controller. We will save the selected project as +selected+ attribute. In order to select one of the projects at startup, let's do it in +init()+ function:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/projects_list.js">
+Todos.projectsListController = SC.ArrayController.create(SC.SelectionSupport, {
+  allowsMultipleSelection: NO,
+  allowsEmptySelection: NO,
+
+  init: function() {
+    var controller = this;
+    this.addObserver('content.firstObject', function() {
+      if (!this.get('hasSelection')) {
+        this.selectObject(this.get('content.firstObject'));
+      }
+    });
+  },
+
+  selected: function() {
+    return this.get('selection').firstObject();
+  }.property('selection').cacheable(),
+});
+</javascript>
+
+As you can see I used +addObserver+ function to observe +content.firstObject+ attribute. When content changes and firstObject is set, given callback is executed. That way, when the content is added and first record gets loaded, I can set it as selected object. To prevent setting selected project twice, I also check if selection already exists.
+
+INFO: We need to observe controller's content in order to set selected project, because records are fetched asynchronously, thus we can't set rely on their existence when starting application. Till now, you didn't have to directly use observers, but you relied on them in almost every aspect of the application. SproutCore allows you to observe any field on any object, if you need to directly handle those changes, you can manually set observers.
+
+The first of the projects should be selected now, but we can't see it nor we can't change the selected project. We can tweak both of these things by creating custom view for projects collection.
+
+<javascript filename="app/sproutcore/apps/todos/views/projects_collection.js">
+Todos.projectsCollectionView = SC.TemplateCollectionView.extend({
+  itemView: SC.TemplateView.extend({
+    selectedBinding: "Todos.projectsListController.selected",
+    isSelected: function() {
+      var selected = this.get('selected'),
+          content = this.get('content');
+
+      return selected && content && selected === content;
+    }.property("selected").cacheable(),
+
+    mouseUp: function() {
+      Todos.projectsListController.selectObject(this.get('content'));
+    }
+  })
+});
+</javascript>
+
+It's important to notice that, as both things are involving collection item, we need to handle them in +itemView+.
+
+INFO: +SC.TemplateCollectionView+ creates a generic view for every item, anytime you need to change something related to it, just overwrite the default one with your implementation.
+
+First thing added to +itemView+ is +selectedBinding+. It delegates delegates +selected+ attribute to +Todos.projectsListConreoller+, so you can use it in a view. +isSelected+ function checks if current item is the same as the selected project. Finally, when the +mouseUp+ function is invoked, current item is set as selected project. Now we just need to bind item's class to +isSelected+ attribute:
+
+<html filename="app/sproutcore/apps/todos/resources/templates/sign_in.handlebars">
+  {{#collection SC.TemplateCollectionView contentBinding="Todos.projectsListController" itemClassBinding="isSelected"}}
+    {{content.name}}
+  {{/collection}}
+</html>
+
+Now when you refresh the app, you can choose one of the projects and chosen project should be highlighted. Everything is almost ready, the last thing that needs to be tweaked is todos list. It still displays all of the todos, instead of the selected ones. In order to change that, we need to bind content of +todoListController+ to todos assigned to selected project. Let's start by removing current fetch request, so that it does not trigger request to get all of the todos, your +onSignIn+ callback should now look like that:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/user_session.js">
+Todos.userSessionController = SC.Object.create({
+  // (...)
+
+  onSignIn: function() {
+    Todos.signInOverlayView.hide();
+
+    var projects = Todos.store.find(Todos.Project);
+    Todos.projectsListController.set('content', projects);
+  }
+});
+</javascript>
+
+Then we need to create function that will return todos in +projectsListController+:
+
+<javascript filename="app/sproutcore/apps/todos/controllers/projects_list.js">
+Todos.projectsListController = SC.ArrayController.create(SC.SelectionSupport, {
+  allowsMultipleSelection: NO,
+  allowsEmptySelection: NO,
+
+  init: function() {
+    var controller = this;
+    this.addObserver('content.firstObject', function() {
+      if (!this.get('hasSelection')) {
+        this.selectObject(this.get('content.firstObject'));
+      }
+    });
+  },
+
+  selected: function() {
+    return this.get('selection').firstObject();
+  }.property('selection').cacheable(),
+
+  todos: function() {
+    var selected = this.get('selected');
+    if(selected) {
+      return selected.get('todos');
+    }
+  }.property('selected').cacheable()
+});
+</javascript>
+
+This function returns +todos+ array assigned to the selected project, if such project exists. Let's bind content in +todoListController+ to it:
+
+<javascript filename="app/sproutcore/apps/todos/todos.js">
+Todos.todoListController = SC.ArrayController.create({
+  contentBinding: "Todos.projectsListController.todos",
+
+  // ...
+
+});
+</javascript>
+
+The last thing that we need to tweak in order to make the whole thing working is to add todos to the selected project. This will need a few changes in +createRecord+ function in +todoListController+:
+
+<javascript filename="app/sproutcore/apps/todos/todos.js">
+Todos.todoListController = SC.ArrayController.create({
+  // (...)
+
+  createTodo: function(title) {
+    var project = Todos.projectsListController.get('selected');
+    var todo = Todos.store.createRecord(Todos.Todo, { title: title, project: project });
+    // TODO: we need to get rid of that hack
+    todo.addObserver('id', function() {
+      project.get('todos').addInverseRecord(todo);
+    });
+  },
+
+  // (...)
+});
+</javascript>
+
+Now we need to fetch selected project and pass it to +createRecord+ function. That's all, that way todo is added to a project and should be placed on a list automatically.
+
+The thing that would be nice to have is ability to add new projects. It should be fairly easy for you now, the mechanism is very similar to what was used when adding todos.
+
+Here are the things that we need to add, a view:
+
+<javascript filename="app/sproutcore/apps/todos/views/create_project.js">
+Todos.CreateProjectView = SC.TextField.extend({
+  insertNewline: function() {
+    var value = this.get('value');
+
+    if (value) {
+      Todos.projectsListController.createProject(value);
+      this.set('value', '');
+    }
+  }
+});
+</javascript>
+
+textfield in a template, under projects collection:
+
+<html filename="app/sproutcore/apps/todos/resources/templates/todos.handlebars">
+  {{#view Todos.CreateProjectView}}
+    <input id="new-project" type="text" placeholder="New project" />
+  {{/view}}
+</html>
+
+h3. Overriding default actions
+
+The last thing that would be nice to have in todos application is ownership. Currently all of the projects are visible by anyone that logs in. In order to change that, we will just need to change rails part.
+
+First thing to do is to add association between user and projects. Let's add a migration and alter models:
+
+<shell>
+rails g migration add_owner_id_to_project owner_id:integer
+</shell>
+
+<ruby filename="app/models/project.rb">
+class Project < ActiveRecord::Base
+  belongs_to :owner, :class_name => "User"
+  has_many :todos
+end
+</ruby>
+
+<ruby filename="app/models/user.rb">
+class User < ActiveRecord::Base
+  devise :database_authenticatable, :registerable,
+         :recoverable, :rememberable, :trackable, :validatable
+  attr_accessible :email, :password, :password_confirmation, :remember_me
+
+  has_many :projects, :foreign_key => :owner_id
+end
+</ruby>
+
+Now we need to change our code to fetch only projects for current user and consequently associate every new project to the user. As you probably remember from the beginning, we used +ApplicationResource+ to authenticate users. Now we just need to modify the way that projects are added and fetched, so we can use +ProjectResource+.
+
+Let's start by overriding create action to create project that belongs to current_user:
+
+<ruby filename="app/bulk/project_resource.rb">
+class ProjectResource < ApplicationResource
+  def as_json_options(klass)
+    {:include => { :todos => { :only => :id } } }
+  end
+
+  def create(hashes)
+    super(hashes) do |project|
+      project.owner = current_user
+    end
+  end
+</ruby>
+
++create+ receives array of hashes for all of the projects that we need to create (remember that we use bulk api that can handle more than one operation on each request). If we just want to change some attributes, the easiest way to do it is to pass a block to +super()+. This block will be evaluated for each record just before saving it. In our case, we can just assign +current_user+ as the project owner.
+
+Now it's time to change the way the projects are fetched. To do that, we must override get method:
+
+<ruby filename="app/bulk/project_resource.rb">
+class ProjectResource < ApplicationResource
+  def as_json_options(klass)
+    {:include => { :todos => { :only => :id } } }
+  end
+
+  def create(hashes)
+    super(hashes) do |project|
+      project.owner = current_user
+    end
+  end
+
+  def get(ids)
+    super(ids) do |ids|
+      projects = current_user.projects
+      ids ? projects.where(:id => ids) : projects
+    end
+  end
+</ruby>
+
++get+ method receives list of ids that need to be fetched. Here we have similar situation. We call +super+ with a block, but with get method, this block is used to return records that you want to fetch.
+
+h3. Authorization
+
+When we fetch projects now, we get only the projects that belong to singed in user, but what if someone wants to use our API and download all of the todos or user data? As we haven't added any authorization yet, any singed in user could fetch all that data.
+
+To disallow that, we need to use authorization callbacks.
+
+INFO: There are 3 kinds of authorization callbacks: +authorize+, +authorize_records+ and +authorize_record+, which run accordingly globally, for all the records of given type and for individual record.
+
+We can define those callbacks for individual resource classes (e.g. for +ProjectResource+), but for the sake of simplicity, let's define them on +ApplicationResource+:
+
+<ruby filename="app/bulk/application_resource.rb">
+class ApplicationResource < Bulk::Resource
+  resources :todos, :projects
+
+  delegate :current_user, :user_signed_in?, :to => :controller
+
+  def authenticate(action)
+    user_signed_in?
+  end
+
+  def authorize_records(action, klass)
+    # we don't want to allow fetching any User records for now
+    # return true for all other types
+    klass != User
+  end
+
+  def authorize_record(action, record)
+    case record
+    when Project then record.owner == current_user
+    when Todo then todo.project.owner == current_user
+    end
+  end
+end
+</ruby>
