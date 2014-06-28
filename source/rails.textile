@@ -24,7 +24,7 @@ Let's start by creating new rails application:
 $ rails new todos
 </shell>
 
-This command should create rails application in +todos+ directory. Now we need to add +bulk_api+ gem which will be used to provide integration with sproutcore easier. The main purpose of this gem is to provide API that can be used in conjunction with +SC.BulkDataSource+. It also helps with running sproutcore application - instead of running sproutcore server separately and setup proxy between 2 applications, you can run directly in rails.
+This command should create rails application in +todos+ directory. Now we need to add +bulk_api+ gem which will be used to provide integration with sproutcore easier. The main purpose of this gem is to provide API that can be used in conjunction with +BulkApi.BulkDataSource+. It also helps with running sproutcore application - instead of running sproutcore server separately and setup proxy between 2 applications, you can run directly in rails.
 
 To install a gem, you add the following line to your +Gemfile+ and run +bundle install+:
 
@@ -82,7 +82,7 @@ Now we need to do a few changes in SproutCore application. First thing that we n
 
 <javqscript filename="app/sproutcore/apps/todos/todos.js">
 Todos = SC.Application.create({
-  store: SC.Store.create().from("SC.BulkDataSource")
+  store: SC.Store.create().from("BulkApi.BulkDataSource")
 });
 </javascript>
 
@@ -105,7 +105,7 @@ Todos.Todo = SC.Record.extend({
 </javascript>
 
 
-The last thing that you need to change is +Buildfile+ we need to require +SC.BulkDataSource+ in order to use it. Open Buildfile and change config line to the following:
+The last thing that you need to change is +Buildfile+ we need to require +BulkApi.BulkDataSource+ in order to use it. Open Buildfile and change config line to the following:
 
 <ruby filename="Buildfile">
 config :all, :required => ["sproutcore/core_foundation", "bulk_data_source"],
